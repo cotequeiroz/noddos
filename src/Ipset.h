@@ -41,6 +41,31 @@
 
 #include "MacAddress.h"
 
+#if IPSET_PROTOCOL < 7
+/* compatibility shims */
+
+inline void ipset_envopt_set(struct ipset_session *session, enum ipset_envopt opt)
+{
+    ipset_envopt_parse(session, opt, NULL);
+}
+
+inline const char * ipset_session_report_msg(const struct ipset_session *session)
+{
+  return ipset_session_error(session);
+}
+
+static inline struct ipset_session *noddos_ipset_session_init(void)
+{
+  return ipset_session_init(printf);
+}
+
+#else
+
+static inline struct ipset_session *noddos_ipset_session_init(void)
+{
+  return ipset_session_init(NULL, NULL);
+}
+#endif
 
 std::string getIpsetUuid (std::string inUuid);
 std::string getIpsetName (std::string inUuid, bool inSrc, bool inIpv4 = true);
@@ -99,23 +124,19 @@ public:
     }
     bool Exists() {
         try {
-            struct ipset_session *session = ipset_session_init(printf);
+            struct ipset_session *session = noddos_ipset_session_init();
             if (session == nullptr) {
                 syslog (LOG_ERR, "Ipset: Cannot initialize ipset session.");
                 ipset_session_fini(session);
                 throw std::runtime_error ("Cannot initialize ipset session.");
             }
 
-            if (ipset_envopt_parse(session, IPSET_ENV_EXIST, NULL) < 0) {
-                syslog (LOG_ERR, "Ipset: Can't set environment option.");
-                ipset_session_fini(session);
-                throw std::runtime_error ("Can't set environment option.");
-            }
+            ipset_envopt_set(session, IPSET_ENV_EXIST);
             int r = ipset_session_data_set(session, IPSET_SETNAME, ipsetName.c_str());
             if (ipset_commit(session) < 0) {
-                syslog (LOG_ERR, "Ipset: Can't commit for setname %s: %s", ipsetName.c_str(), ipset_session_error(session));
+                syslog (LOG_ERR, "Ipset: Can't commit for setname %s: %s", ipsetName.c_str(), ipset_session_report_msg(session));
                 ipset_session_fini(session);
-                throw std::runtime_error("Can't call ipset_commit for " + ipsetName + ": " + ipset_session_error(session));
+                throw std::runtime_error("Can't call ipset_commit for " + ipsetName + ": " + ipset_session_report_msg(session));
             }
             ipset_session_fini(session);
             return r == 0;
